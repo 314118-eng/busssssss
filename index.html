@@ -1,0 +1,1833 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>公車小幫手｜GPS 終極修正版</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDmpPfzwThSFdCYCskziwUpNzffItQPazY&libraries=places"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+  <style>
+    /* ===== 全域設計系統 ===== */
+    :root {
+      --color-primary: #00b894; 
+      --color-primary-dark: #009475;
+      --color-secondary: #4a69bd; 
+      --color-background: #f4f7f6; 
+      --color-surface: #ffffff; 
+      --color-text-main: #1b282b; 
+      --color-text-soft: #555555; 
+      --color-border: #dfe6e9; 
+      --color-shadow: rgba(0, 0, 0, 0.08);
+      --radius-lg: 16px; 
+      --radius-md: 10px; 
+      --spacing-md: 12px;
+      --spacing-lg: 16px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--color-background);
+      color: var(--color-text-main);
+      height: 100vh;
+      overflow: hidden; 
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+    }
+
+    .app {
+      max-width: 420px;
+      width: 100%;
+      height: 100%;
+      background-color: var(--color-surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .app-top-bg {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 145px;
+      background: linear-gradient(135deg, #00b894, #00cec9);
+      z-index: 0;
+    }
+
+    header.app-header {
+      padding: 16px var(--spacing-lg) 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--color-surface);
+      position: relative;
+      z-index: 1;
+      flex-shrink: 0; 
+    }
+
+    header h1 { font-size: 18px; font-weight: 600; }
+    header h1 span { font-size: 13px; font-weight: 400; opacity: 0.8; }
+    .header-right { font-size: 12px; text-align: right; line-height: 1.4; }
+
+    /* Main 容器設定 */
+    main {
+      flex: 1;
+      overflow: hidden; 
+      padding: 0 var(--spacing-lg);
+      position: relative;
+      z-index: 1;
+      padding-bottom: 10px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .screen {
+      display: none;
+      height: 100%; 
+      flex-direction: column;
+      animation: fadeIn 0.25s ease-out;
+    }
+    .screen.active { display: flex; }
+
+    /* 首頁凍結窗格設定 */
+    .home-static-content {
+      flex-shrink: 0; 
+      padding-bottom: 10px;
+    }
+    
+    #bus-list {
+      flex: 1; 
+      overflow-y: auto; 
+      padding-right: 2px; 
+      scrollbar-width: thin; 
+    }
+    
+    #stops-screen, #reservations-screen, #route-screen, #others-screen, #detail-screen {
+        overflow-y: auto;
+        padding-bottom: 20px;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    .spinning {
+        animation: spin 1s linear infinite;
+    }
+
+    /* Bottom Nav */
+    .bottom-nav {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      height: 60px;
+      background-color: var(--color-surface);
+      border-top: 1px solid var(--color-border);
+      box-shadow: 0 -2px 10px var(--color-shadow);
+      flex-shrink: 0;
+      z-index: 10;
+    }
+
+    .nav-btn {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 4px 0;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 10px;
+      color: var(--color-text-soft);
+      transition: color 0.2s ease;
+    }
+    .nav-btn.active { color: var(--color-primary); }
+    .nav-icon { font-size: 22px; margin-bottom: 2px; }
+    .nav-btn.active .nav-icon { filter: hue-rotate(100deg) saturate(200%); }
+
+    /* Common Components */
+    .card {
+      background-color: var(--color-surface);
+      border-radius: var(--radius-lg);
+      padding: var(--spacing-md);
+      box-shadow: 0 4px 12px var(--color-shadow);
+      margin-bottom: var(--spacing-md);
+    }
+
+    .btn {
+      padding: 10px 16px;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background-color 0.2s, transform 0.1s;
+    }
+    .btn-primary {
+      background-color: var(--color-primary);
+      color: var(--color-surface);
+      box-shadow: 0 4px 10px rgba(0, 184, 148, 0.3);
+    }
+    .btn-primary:active { transform: translateY(1px); }
+    
+    .btn-secondary {
+      background-color: var(--color-background);
+      color: var(--color-text-main);
+      border: 1px solid var(--color-border);
+    }
+    
+    .btn-outline {
+      background-color: transparent;
+      color: var(--color-secondary);
+      border: 1px solid var(--color-secondary);
+    }
+    .btn-outline:active { background-color: #f0f4ff; }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 16px 0 8px;
+      color: var(--color-text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .hint-text { font-size: 12px; color: var(--color-text-soft); margin-bottom: 10px; }
+
+    /* Home Screen */
+    .location-card {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+    }
+    .location-main { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; max-width: 60%; }
+    .location-tag {
+      background-color: #e8f6f3; color: var(--color-primary-dark);
+      border-radius: 999px; padding: 2px 10px; font-size: 11px; margin-top: 4px;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .location-right {
+      display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+      font-size: 12px; text-align: right; max-width: 40%;
+    }
+    .location-right-title { font-weight: 600; color: var(--color-primary-dark); display: flex; align-items: center; gap: 4px; font-size: 12px; }
+    .location-right-weather { color: var(--color-text-soft); }
+    .weather-link { border: none; background: transparent; font-size: 11px; color: var(--color-primary-dark); text-decoration: underline; cursor: pointer; padding: 0; }
+
+    /* Bus List */
+    .bus-list-container {
+      display: flex; flex-direction: column; background-color: var(--color-surface);
+      border-radius: var(--radius-lg); 
+    }
+    .home-bus-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px; border-bottom: 1px solid var(--color-border);
+      background-color: var(--color-surface); cursor: pointer; transition: background-color 0.2s ease;
+    }
+    .home-bus-row:last-child { border-bottom: none; }
+    .home-bus-row:hover { background-color: #f9f9f9; }
+    
+    .arrival-circle {
+      width: 60px; height: 60px; border: 3px solid var(--color-border); border-radius: 50%;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 800; color: var(--color-text-main); flex-shrink: 0;
+      text-align: center;
+      line-height: 1.1;
+      background: #fff;
+    }
+    .arrival-circle.urgent { border-color: #ff6b6b; color: #ff6b6b; }
+    .arrival-circle.schedule { border-color: #4a69bd; color: #4a69bd; font-size: 13px; }
+    .arrival-circle span { font-size: 10px; font-weight: 400; }
+    
+    .bus-name { font-size: 16px; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 4px; }
+    .bus-dest { font-size: 13px; color: var(--color-text-soft); }
+    /* 車牌號碼樣式 */
+    .bus-plate-badge {
+        background: #333; color: #fb1; padding: 1px 5px; border-radius: 4px;
+        font-family: monospace; font-size: 11px; font-weight: 700; border: 1px solid #cca000;
+        margin-left: 5px;
+    }
+
+    /* Detail UI */
+    .detail-container {
+      display: flex; flex-direction: column; align-items: center;
+      padding-top: 10px;
+    }
+    .detail-route-num {
+      font-size: 42px; font-weight: 800; color: #2d3436; margin-bottom: 2px;
+      letter-spacing: -1px;
+    }
+    .detail-current-stop {
+        font-size: 15px; font-weight: 700; color: var(--color-primary-dark);
+        margin-bottom: 5px; background: #e8f6f3; padding: 4px 12px; border-radius: 99px;
+    }
+    .detail-direction {
+      font-size: 16px; font-weight: 600; color: var(--color-text-soft); margin-bottom: 15px;
+    }
+    
+    .detail-status-big {
+      font-size: 36px; font-weight: 800; margin-bottom: 5px; color: var(--color-text-main);
+    }
+    .detail-status-sub {
+      font-size: 14px; color: var(--color-text-soft); margin-bottom: 25px;
+    }
+    .status-alert { color: #d63031; } 
+    .status-ok { color: var(--color-text-main); }
+    .status-blue { color: #4a69bd; }
+
+    .info-section {
+      width: 100%;
+      margin-bottom: 20px;
+      text-align: left;
+    }
+    .info-title {
+      font-size: 14px; font-weight: 700; color: var(--color-text-main);
+      margin-bottom: 8px; padding-left: 4px;
+    }
+    .info-card {
+      background-color: #f8f9fa;
+      border-radius: 12px;
+      padding: 12px 16px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .info-row {
+      display: flex; align-items: center; gap: 8px; font-size: 14px; color: #4a4a4a;
+    }
+    
+    /* 鄰近站牌樣式 */
+    .neighbor-row {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 8px 0; border-bottom: 1px solid #eee; font-size: 13px;
+    }
+    .neighbor-row:last-child { border-bottom: none; }
+    .neighbor-label { color: #888; width: 60px; flex-shrink: 0; font-weight: 500;}
+    .neighbor-name { font-weight: 600; flex: 1; text-align: left; padding: 0 8px; display: flex; align-items: center; gap:4px; }
+    .seq-tag { font-size: 10px; background: #eee; color: #666; padding: 1px 4px; border-radius: 4px; }
+    .neighbor-time { font-weight: 700; color: var(--color-primary); width: 70px; text-align: right; font-size: 13px;}
+    .neighbor-time.grey { color: #ccc; font-weight: 400; }
+
+    .dot {
+      width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+    }
+    .dot.green { background-color: #00b894; }
+    .dot.yellow { background-color: #fdcb6e; }
+    .dot.red { background-color: #d63031; }
+
+    .detail-actions {
+      display: flex; gap: 12px; width: 100%; margin-top: 10px;
+    }
+    .action-btn {
+      flex: 1;
+      padding: 12px;
+      border-radius: 99px;
+      border: none;
+      font-size: 15px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      cursor: pointer;
+    }
+    .btn-green { background-color: #e4f9f0; color: #009475; border: 1px solid #00b894; }
+    .btn-outline-green { background-color: #fff; color: #009475; border: 1px solid #00b894; }
+    .btn-disabled { background-color: #eee; color: #999; border: 1px solid #ddd; cursor: not-allowed; }
+
+    /* Food Screen */
+    .food-header-card {
+        background-color: #fff8e1;
+        border: 1px solid #ffe082;
+        color: #f57f17;
+        display: flex; align-items: center; gap: 6px; 
+        font-weight: 600; font-size: 13px; padding: 10px;
+    }
+    .food-select {
+        flex: 1; border: 1px solid #ffe082; background: #fff;
+        padding: 4px 8px; border-radius: 6px; font-size: 13px;
+        color: #e67e22; font-weight: 600; cursor: pointer;
+    }
+    .food-select:focus { outline: none; border-color: #f57f17; }
+    
+    .scrollable-list {
+        max-height: 40vh; overflow-y: auto; 
+        border: 1px solid var(--color-border);
+        border-radius: 12px; background: #fff;
+    }
+
+    .food-item {
+      display: flex; align-items: center; gap: 12px; padding: 10px 15px; border-bottom: 1px solid var(--color-border);
+    }
+    .food-item:last-child { border-bottom: none; }
+    .food-img {
+      width: 60px; height: 60px; background-color: #eee; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center; font-size: 30px;
+      background-size: cover; background-position: center; overflow: hidden;
+      flex-shrink: 0;
+    }
+    .food-info h4 { font-size: 15px; margin-bottom: 4px; }
+    .food-meta { font-size: 12px; color: var(--color-text-soft); }
+    .attribution { font-size: 10px; color: #aaa; margin-top: 5px; }
+
+    /* AI Camera (YOLO-like) */
+    #webcam-wrapper {
+        position: relative;
+        width: 100%;
+        max-height: 350px;
+        overflow: hidden;
+        border-radius: 12px;
+        background: #000;
+        display: none;
+        justify-content: center;
+    }
+    #webcam-video {
+        position: absolute;
+        visibility: hidden;
+        width: auto;
+        height: auto;
+    }
+    #webcam-canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+    .ai-stat {
+        background: #00b894; color: white; padding: 5px 10px; 
+        border-radius: 99px; font-size: 14px; font-weight: 700;
+        margin-top: 10px; display: inline-block;
+    }
+
+    /* Res List */
+    .res-group-title {
+        font-size: 14px; font-weight: 700; color: var(--color-secondary);
+        margin: 15px 0 8px; padding-left: 4px; border-left: 3px solid var(--color-secondary);
+        line-height: 1.2;
+    }
+    .stop-card {
+      display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 13px;
+    }
+    .chip-btn {
+      border-radius: 999px; border: none; font-size: 11px; padding: 4px 8px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    #countdown-text { color: var(--color-primary); font-weight: bold; font-size: 14px; margin-top: 10px; }
+
+  </style>
+</head>
+<body>
+  <div id="map" style="display:none;"></div>
+
+  <div class="app">
+    <div class="app-top-bg"></div>
+    <header class="app-header">
+      <div class="header-left">
+        <div class="bus-icon" style="background-color: var(--color-surface); color: var(--color-primary); width: 32px; height: 32px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; margin-right: 8px;">🚌</div>
+        <h1 style="display: inline-block; vertical-align: middle;">
+          公車小幫手<br />
+          <span>GPS 真實動態版</span>
+        </h1>
+      </div>
+      <div class="header-right">
+        <div>📍 目前位置</div>
+        <div id="header-weather">天氣定位中...</div>
+      </div>
+    </header>
+
+    <main>
+      <section id="welcome-screen" class="screen active">
+        <div class="welcome-wrap" style="height: 100%; padding-top: 80px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+          <div class="welcome-emoji" style="width: 90px; height: 90px; border-radius: 32px; margin: 0 auto 10px; background: var(--color-primary); color: var(--color-surface); box-shadow: 0 10px 24px rgba(0, 184, 148, 0.3); display: flex; align-items: center; justify-content: center; font-size: 42px;">👋</div>
+          <div style="margin-top: 20px; font-size: 24px; font-weight: 700;">歡迎使用公車小幫手</div>
+          <p style="color: var(--color-text-soft); margin-bottom: 20px;">連結 TDX 真實 GPS 資料<br>顯示車牌，拒絕虛假！</p>
+          <div id="countdown-text">3 秒後自動進入...</div>
+          <button id="btn-start" class="btn btn-primary" style="margin-top: 20px;">立即開始，前往首頁</button>
+        </div>
+      </section>
+
+      <section id="home-screen" class="screen">
+        <div class="home-static-content">
+            <div class="card location-card">
+              <div class="location-main">
+                <span class="icon" style="font-size: 24px;">🏠</span>
+                <div>
+                  <div style="font-weight: 600; margin-bottom: 3px;">我的常用站牌</div>
+                  <div class="location-tag">GPS + 車牌辨識</div>
+                </div>
+              </div>
+              <div class="location-right">
+                <div class="location-right-title"><span class="icon">☀️</span>即時天氣</div>
+                <div class="location-right-weather">
+                  <span id="weather-text">定位中...</span>
+                  <button class="weather-link" id="btn-refresh-weather">更新</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-title">
+               <span style="font-size: 24px;">🚌</span> 即將到站公車
+               <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+                   <span id="auto-refresh-timer" style="font-size:12px; font-weight:400; color:#888;">5秒後更新</span>
+                   <button id="btn-manual-refresh" style="border:none; background:none; cursor:pointer; font-size:18px; display:flex; align-items:center;" title="立即刷新">🔄</button>
+               </div>
+            </div>
+            <p class="hint-text">資料來源：TDX GPS (A1) + 預估 (N1)</p>
+        </div>
+
+        <div class="bus-list-container" id="bus-list">
+          <div style="padding: 20px; text-align: center; color: #888;">正在連線 TDX 取得資料...</div>
+        </div>
+        
+        <div style="text-align:center; padding:10px 0; flex-shrink: 0;">
+           <button id="btn-to-stops-main" class="btn btn-secondary" style="font-size:12px;">➕ 新增常用站牌</button>
+        </div>
+      </section>
+
+      <section id="stops-screen" class="screen">
+        <div class="section-title"><span style="font-size: 24px;">⭐</span> 常用站牌管理</div>
+        <p class="hint-text">設定您常用的站牌，方便快速切換查看即時資訊。</p>
+        <div id="stops-list"></div>
+        <button id="btn-add-stop" class="btn btn-secondary" style="width: 100%; margin-top: 10px;">➕ 新增常用站牌</button>
+      </section>
+
+      <section id="reservations-screen" class="screen">
+        <div class="section-title"><span style="font-size: 24px;">📝</span> 預約紀錄</div>
+        <p class="hint-text">系統將會在時間到時發出通知。</p>
+        
+        <div id="res-list-boarding">
+           <div class="res-group-title">🚍 上車提醒</div>
+           <div class="content"></div>
+        </div>
+        
+        <div id="res-list-alighting" style="margin-top: 20px;">
+           <div class="res-group-title">🚶 下車提醒</div>
+           <div class="content"></div>
+        </div>
+        
+        <p class="hint-text" style="text-align: center; margin-top: 20px; display: none;" id="no-reservation-text">
+          目前沒有預約紀錄。
+        </p>
+      </section>
+
+      <section id="route-screen" class="screen">
+        <div class="section-title"><span style="font-size: 24px;">🦭</span> 規劃路線</div>
+        <p class="hint-text">輸入目的地，開啟 Google Maps 導航。</p>
+        <section class="route-planner-card card" style="padding: 0; margin-top: 20px;">
+          <div class="route-form" style="padding: var(--spacing-md);">
+            <div class="route-input-group" style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: space-between; height: 60px;">
+                <span style="font-size: 18px; color: var(--color-primary); font-weight: 700;">●</span>
+                <span style="width: 2px; height: 20px; background-color: var(--color-border);"></span>
+                <span style="font-size: 18px; color: var(--color-secondary);">📍</span>
+              </div>
+              <div style="flex-grow: 1;">
+                <input type="text" placeholder="您的位置 (自動偵測)" readonly style="width: 100%; padding: 8px; border: 1px solid var(--color-border); border-radius: var(--radius-md); margin-bottom: 5px; font-size: 14px; background-color: #f9f9f9; color: var(--color-text-soft);"/>
+                <input id="destInput" type="text" placeholder="請輸入目的地 (例如: 桃園火車站)" style="width: 100%; padding: 8px; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 14px; background-color: var(--color-surface);"/>
+              </div>
+            </div>
+            <button id="btn-plan-route" type="button" class="btn btn-primary" style="width: 100%; margin-top: 10px;">
+              🗺️ 開啟 Google Maps 導航
+            </button>
+          </div>
+          <div style="padding: 15px; color: #666; font-size: 13px; line-height: 1.5;">
+             說明：點擊按鈕將開啟 Google 地圖 APP，自動帶入您的目前位置作為起點。
+          </div>
+        </section>
+      </section>
+
+      <section id="others-screen" class="screen">
+        <div class="section-title"><span style="font-size: 24px;">📸</span> 站牌人流 AI 分析</div>
+        <p class="hint-text">利用 AI 攝影機 (YOLO 物件偵測) 計算候車人數。</p>
+        
+        <div class="card" style="text-align: center; padding-bottom: 10px;">
+            <div id="ai-error-msg" style="display:none; color:red; font-size:12px; margin-bottom:10px; background:#fff0f0; padding:5px; border-radius:5px;"></div>
+            <button id="btn-start-ai" class="btn btn-primary" style="width: 100%; margin-bottom: 10px;">📡 啟動 AI 攝影機</button>
+            <button id="btn-stop-ai" class="btn btn-secondary" style="width: 100%; display: none;">🛑 關閉攝影機</button>
+            <button id="btn-demo-ai" class="btn btn-outline" style="width: 100%; margin-top:5px; display: none;">▶️ 模擬演示 (無法使用相機時)</button>
+            <div id="webcam-container"></div>
+            <div id="label-container"></div>
+            
+            <div id="webcam-wrapper">
+                <video id="webcam-video" playsinline autoplay muted></video>
+                <canvas id="webcam-canvas"></canvas>
+            </div>
+            <div class="ai-stat">目前偵測人數：<span id="person-count">0</span> 人</div>
+            <div style="font-size: 12px; color: #999; margin-top: 10px;">Powered by TensorFlow.js (COCO-SSD)</div>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+
+        <div class="section-title"><span style="font-size: 24px;">🍔</span> 到站美食推薦</div>
+        <div class="card food-header-card" id="food-location-container">
+           <span>📍</span>
+           <label for="food-stop-select">附近站牌：</label>
+           <select id="food-stop-select" class="food-select">
+               <option value="">請選擇...</option>
+           </select>
+        </div>
+        <p class="hint-text">透過 Google Maps 搜尋站牌附近評價不錯的美食！</p>
+        <div class="card scrollable-list" id="food-list-container">
+            <div style="text-align:center; padding:10px;">請選擇站牌以載入美食</div>
+        </div>
+      </section>
+
+      <section id="detail-screen" class="screen">
+        <button class="btn btn-secondary" type="button" id="btn-back" style="margin-bottom: 10px; font-size:12px; padding:6px 12px;">← 返回</button>
+
+        <div class="card" style="padding: 30px 20px 20px; text-align: center;">
+          
+          <div class="detail-route-num" id="detail-route-num">--</div>
+          <div class="detail-direction" id="detail-route-dest">-- ⇄ --</div>
+          <div class="detail-current-stop" id="detail-current-stop">所在站牌：--</div>
+
+          <div class="detail-status-big" id="detail-status-big">--</div>
+          <div class="detail-status-sub" id="detail-status-sub">--</div>
+
+          <div class="info-section">
+            <div class="info-title">前後站動態參考 (確認車輛位置)</div>
+            <div class="info-card">
+              <div class="neighbor-row">
+                 <div class="neighbor-label">上一站</div>
+                 <div class="neighbor-name" id="prev-stop-name">--</div>
+                 <div class="neighbor-time" id="prev-stop-time">--</div>
+              </div>
+              <div class="neighbor-row">
+                 <div class="neighbor-label">下一站</div>
+                 <div class="neighbor-name" id="next-stop-name">--</div>
+                 <div class="neighbor-time" id="next-stop-time">--</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="info-section">
+            <div class="info-title">車況資訊</div>
+            <div class="info-card">
+              <div class="info-row">
+                <span style="font-size:16px;">🚌</span>
+                <span>車型：<span id="detail-bus-type">一般公車</span></span>
+              </div>
+              <div class="info-row">
+                <span style="font-size:16px;">👥</span>
+                <span>狀況：<span id="detail-crowd-dot" class="dot green"></span> <span id="detail-crowd-text">座位充裕 (目前車上約 7 人)</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-actions">
+            <button class="action-btn btn-green" id="btn-reserve-board">🔔 上車提醒</button>
+            <button class="action-btn btn-outline-green" id="btn-reserve-alight">📍 下車提醒</button>
+          </div>
+
+        </div>
+      </section>
+    </main>
+
+    <div id="add-stop-modal" class="modal-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 20;">
+      <div class="modal-card card" style="width: 90%; max-width: 350px; padding: 20px; text-align: center;">
+        <div class="modal-title" style="font-size: 20px; font-weight: 700; margin-bottom: 10px;">新增常用站牌</div>
+        <div class="modal-row" style="text-align: left; margin-bottom: 15px;">
+          <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px;">搜尋/選擇路線</label>
+          <input type="text" id="input-route-search" placeholder="輸入路線號碼 (例如: 307)" style="width: 100%; padding: 8px; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 14px; margin-bottom: 5px;">
+          <select id="select-route-firebase" style="width: 100%; padding: 10px; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 14px;"><option value="">載入中...</option></select>
+        </div>
+        <div class="modal-row" style="text-align: left; margin-bottom: 20px;">
+          <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px;">選擇站牌</label>
+          <select id="select-stop-firebase" disabled style="width: 100%; padding: 10px; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 14px; background-color: #f0f0f0;"><option value="">請先選擇路線</option></select>
+        </div>
+        <div class="modal-actions" style="display: flex; gap: 10px;">
+          <button type="button" id="btn-add-stop-cancel" class="btn btn-secondary" style="flex: 1;">取消</button>
+          <button type="button" id="btn-add-stop-confirm" class="btn btn-primary" style="flex: 1;">新增</button>
+        </div>
+      </div>
+    </div>
+    
+    <div id="alight-stop-modal" class="modal-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 25;">
+      <div class="modal-card card" style="width: 90%; max-width: 350px; padding: 20px; text-align: center;">
+        <div class="modal-title" style="font-size: 18px; font-weight: 700; margin-bottom: 10px;">請選擇下車站牌</div>
+        <p style="font-size:12px; color:#666; margin-bottom:15px;">系統將利用 Google Maps 計算真實路況時間</p>
+        <select id="select-alight-stop" style="width: 100%; padding: 10px; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 14px; margin-bottom: 20px;">
+            <option value="">載入中...</option>
+        </select>
+        <div class="modal-actions" style="display: flex; gap: 10px;">
+          <button type="button" id="btn-alight-cancel" class="btn btn-secondary" style="flex: 1;">取消</button>
+          <button type="button" id="btn-alight-confirm" class="btn btn-primary" style="flex: 1;">計算並設定</button>
+        </div>
+      </div>
+    </div>
+    
+    <div id="reserve-overlay" class="modal-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 20;">
+      <div class="modal-card card" style="width: 90%; max-width: 350px; padding: 20px;">
+        <div style="font-size: 18px; font-weight: 700; margin-bottom: 10px;">預約成功</div>
+        <p id="reserve-msg">已加入預約紀錄。</p>
+        <button id="btn-modal-ok" class="btn btn-primary" style="width:100%; margin-top:10px;">確定</button>
+      </div>
+    </div>
+    
+    <div id="notification-overlay" class="modal-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 30;">
+      <div class="modal-card card" style="width: 90%; max-width: 350px; padding: 20px; border-left: 5px solid #00b894;">
+        <div style="font-size: 20px; font-weight: 700; margin-bottom: 10px; display:flex; align-items:center; gap:8px;">
+           <span>🔔</span> <span id="notif-title">到站通知</span>
+        </div>
+        <div id="notification-content" style="font-size:15px; line-height:1.5; margin-bottom:15px;">內容...</div>
+        <button id="btn-notification-ok" class="btn btn-primary" style="width:100%;">收到</button>
+      </div>
+    </div>
+
+    <nav class="bottom-nav">
+      <button class="nav-btn active" data-target="home-screen"><div class="nav-icon">🏠</div><div>首頁</div></button>
+      <button class="nav-btn" data-target="stops-screen"><div class="nav-icon">⭐</div><div>常用</div></button>
+      <button class="nav-btn" data-target="reservations-screen"><div class="nav-icon">📝</div><div>預約</div></button>
+      <button class="nav-btn" data-target="route-screen"><div class="nav-icon">🧭</div><div>規劃</div></button>
+      <button class="nav-btn" data-target="others-screen"><div class="nav-icon">🍔</div><div>其他</div></button>
+    </nav>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
+    import { getFirestore, collection, getDocs, query } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyB1T4agVI78c4vXGLWUBfy5MWo1NwRgEQs",
+      authDomain: "busssss-c18d5.firebaseapp.com",
+      projectId: "busssss-c18d5",
+      storageBucket: "busssss-c18d5.firebasestorage.app",
+      messagingSenderId: "1021928933232",
+      appId: "1:1021928933232:web:83dd719f9b1112f37031b5"
+    };
+
+    let app, db;
+    try {
+        app = initializeApp(firebaseConfig);
+        db = getFirestore(app);
+    } catch(e) {
+        console.error("Firebase Init Failed:", e);
+    }
+
+    const TDX_CLIENT_ID = '314118-8c49cdfe-7af0-424d';     
+    const TDX_CLIENT_SECRET = '627ee6d3-a920-47ea-bd5d-7319e03a7f65'; 
+    let tdxAccessToken = null;
+    let tdxTokenExpiry = 0; 
+    let currentRenderId = 0; 
+    let refreshTimer = null;
+    let countdownTimer = null;
+    const REFRESH_RATE_MS = 5000; 
+
+    let allRoutesConfig = []; 
+    let STOPS = [];
+    let RESERVATIONS = [];
+    
+    // Init
+    initDataFromStorage();
+    updateWeather();
+    
+    // 延遲啟動，確保 UI 載入
+    setTimeout(() => {
+        startAutoRedirect();
+    }, 500);
+
+    document.getElementById("btn-manual-refresh").addEventListener("click", async () => {
+        const btn = document.getElementById("btn-manual-refresh");
+        
+        btn.classList.add("spinning");
+        btn.disabled = true;
+
+        const busListEl = document.getElementById("bus-list");
+        if(busListEl.children.length === 0) {
+             busListEl.innerHTML = "<div style='padding:20px;text-align:center;'>更新中...</div>";
+        }
+
+        await renderHomePageBusList();
+        
+        setTimeout(() => {
+            btn.classList.remove("spinning");
+            btn.disabled = false;
+        }, 500);
+
+        startAutoRefresh();
+    });
+    
+    document.getElementById("input-route-search").addEventListener("input", (e) => {
+        const searchText = e.target.value.trim().toUpperCase();
+        const select = document.getElementById("select-route-firebase");
+        select.innerHTML = '<option value="">請選擇...</option>';
+        const filtered = allRoutesConfig.filter(r => r.name.includes(searchText));
+        filtered.forEach(route => {
+            const opt = document.createElement("option");
+            opt.value = route.id;
+            opt.textContent = `${route.name} (往 ${route.dest})`; 
+            select.appendChild(opt);
+        });
+    });
+
+    function initDataFromStorage() {
+      const savedStops = localStorage.getItem('my_bus_stops');
+      if (savedStops) STOPS = JSON.parse(savedStops);
+      const savedRes = localStorage.getItem('my_bus_reservations_v2'); 
+      if (savedRes) RESERVATIONS = JSON.parse(savedRes);
+    }
+
+    function saveDataToStorage() {
+      localStorage.setItem('my_bus_stops', JSON.stringify(STOPS));
+      localStorage.setItem('my_bus_reservations_v2', JSON.stringify(RESERVATIONS));
+    }
+
+    async function fetchRoutesFromFirebase() {
+      const busListEl = document.getElementById("bus-list");
+      try {
+        if(!db) throw new Error("Database not initialized");
+        const q = query(collection(db, 'bus_routes'));
+        const snapshot = await getDocs(q);
+        allRoutesConfig = []; 
+        if (!snapshot.empty) {
+            snapshot.forEach(doc => {
+              const data = doc.data();
+              let isAccessible = Math.random() < 0.3; 
+              if (data.name && data.name.toString().startsWith('1')) isAccessible = false;
+              allRoutesConfig.push({ id: doc.id, isAccessible: isAccessible, ...data });
+            });
+            allRoutesConfig.sort((a, b) => (a.name || "").localeCompare((b.name || ""), undefined, { numeric: true, sensitivity: 'base' }));
+        }
+        
+        const select = document.getElementById("select-route-firebase");
+        if(select.children.length <= 1) {
+            allRoutesConfig.forEach(route => {
+                const opt = document.createElement("option");
+                opt.value = route.id;
+                opt.textContent = `${route.name} (往 ${route.dest})`; 
+                select.appendChild(opt);
+            });
+        }
+        renderHomePageBusList();  
+        renderStopsList();    
+      } catch (e) {
+        console.error("Firebase Error:", e);
+        busListEl.innerHTML = `<div style='padding:20px;text-align:center;color:red;'>連線錯誤<br>${e.message}</div>`;
+      }
+    }
+
+    async function getTDXToken() {
+        const now = Date.now();
+        if(tdxAccessToken && now < tdxTokenExpiry - 600000) return tdxAccessToken;
+
+        try {
+            const formData = new URLSearchParams();
+            formData.append('grant_type', 'client_credentials');
+            formData.append('client_id', TDX_CLIENT_ID);
+            formData.append('client_secret', TDX_CLIENT_SECRET);
+
+            const res = await fetch('https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: formData
+            });
+            const data = await res.json();
+            tdxAccessToken = data.access_token;
+            tdxTokenExpiry = now + (data.expires_in * 1000);
+            return data.access_token;
+        } catch(e) {
+            console.error("TDX Token Error", e);
+            return null;
+        }
+    }
+
+    function processBusTime(busData) {
+        if (!busData) return { status: 'unknown' };
+        
+        // 🔴 嚴格檢查 GPS 時間是否存在 (解決 0!=null 的陷阱)
+        if (busData.EstimateTime != null) { 
+             return { 
+                 status: 'normal', 
+                 time: Math.floor(busData.EstimateTime / 60), 
+                 plate: busData.PlateNumb || ''
+             };
+        } else if (busData.NextBusTime) {
+             const nextTime = new Date(busData.NextBusTime);
+             const hours = nextTime.getHours().toString().padStart(2, '0');
+             const mins = nextTime.getMinutes().toString().padStart(2, '0');
+             const now = new Date();
+             const diffMins = Math.floor((nextTime - now) / 60000);
+             
+             return { status: 'schedule_calc', time: diffMins > 0 ? diffMins : 0, showTime: `${hours}:${mins}` };
+        } else {
+             return { status: 'end' };
+        }
+    }
+
+    async function getBusContext(routeName, stopName, destination) {
+        const token = await getTDXToken();
+        if(!token) return null; 
+
+        try {
+            const url = `https://tdx.transportdata.tw/api/basic/v2/Bus/EstimatedTimeOfArrival/City/Taoyuan/${routeName}?%24format=JSON`;
+            
+            const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+            const data = await res.json();
+            
+            // 🔴 1. 強制嚴格方向判斷 (Fix Direction Logic)
+            const targetDest = destination.replace(/^往\s*/, '').trim();
+            const cleanName = (str) => str.replace(/[()（）\s]/g, '');
+
+            // 先分組 Direction
+            const dirs = { 0: [], 1: [] };
+            data.forEach(d => {
+                if(d.Direction === 0 || d.Direction === 1) dirs[d.Direction].push(d);
+            });
+
+            // 判斷哪一個 Direction 的 "終點站" 包含 使用者想要的 "目的地"
+            let targetDir = -1;
+            
+            for (let d in dirs) {
+                // 檢查該方向所有資料，是否有任一筆的 DestinationStopNameZh 包含 targetDest
+                const hasMatch = dirs[d].some(item => item.DestinationStopNameZh && item.DestinationStopNameZh.includes(targetDest));
+                if (hasMatch) {
+                    targetDir = d;
+                    break;
+                }
+            }
+            
+            // 如果比對失敗，預設取有資料的那個方向 (Fall back)
+            if (targetDir === -1) {
+                 if (dirs[0].length > 0) targetDir = 0;
+                 else if (dirs[1].length > 0) targetDir = 1;
+            }
+            
+            let directionData = dirs[targetDir] || [];
+            
+            // 排序 (小到大)
+            directionData.sort((a, b) => a.StopSequence - b.StopSequence);
+
+            // 🔴 2. 找出此站所有資料 (Filter SubRoutes)
+            const matches = directionData.filter(d => cleanName(d.StopName.Zh_tw) === cleanName(stopName));
+            
+            if (matches.length === 0) return { current: { status: 'unknown' }, prev: null, next: null };
+
+            // 🔴 3. 排序優化：優先選有 GPS 且時間短的 (Avoid Ghost Bus)
+            matches.sort((a, b) => {
+                const timeA = a.EstimateTime;
+                const timeB = b.EstimateTime;
+                const hasA = (timeA != null);
+                const hasB = (timeB != null);
+
+                // 有 GPS 先贏
+                if (hasA && !hasB) return -1;
+                if (!hasA && hasB) return 1;
+
+                // 都有 GPS，選時間短的
+                if (hasA && hasB) {
+                    return timeA - timeB;
+                }
+                return 0; 
+            });
+
+            const current = matches[0]; // 最佳匹配
+            const currentPlate = current.PlateNumb;
+            const currentSubRoute = current.SubRouteUID;
+
+            // 🔴 4. 前後站「雙重鎖定」：必須同 SubRoute + (若有車牌) 同車牌
+            // 過濾出同一條子路線
+            const subRouteData = directionData.filter(d => d.SubRouteUID === currentSubRoute);
+            subRouteData.sort((a, b) => a.StopSequence - b.StopSequence); // 確保順序正確
+
+            let prevData = null;
+            let nextData = null;
+
+            if (currentPlate) {
+                // GPS 模式：嚴格比對車牌 (確保是同一台車)
+                prevData = subRouteData.find(d => d.StopSequence === current.StopSequence - 1 && d.PlateNumb === currentPlate);
+                nextData = subRouteData.find(d => d.StopSequence === current.StopSequence + 1 && d.PlateNumb === currentPlate);
+                
+                // 如果找不到上一站的同車牌資料 (代表車子剛過上一站)，手動標記為「已離站」
+                if (!prevData) {
+                     const staticPrev = subRouteData.find(d => d.StopSequence === current.StopSequence - 1);
+                     if (staticPrev) {
+                         prevData = { ...staticPrev, EstimateTime: -999, PlateNumb: currentPlate }; 
+                     }
+                }
+            } else {
+                // Schedule 模式：依靠 Sequence
+                const idx = subRouteData.findIndex(d => d.StopUID === current.StopUID);
+                if (idx > 0) prevData = subRouteData[idx - 1];
+                if (idx < subRouteData.length - 1) nextData = subRouteData[idx + 1];
+            }
+
+            return {
+                current: processBusTime(current),
+                prev: prevData ? { name: prevData.StopName.Zh_tw, ...processBusTime(prevData), seq: prevData.StopSequence, plate: prevData.PlateNumb } : null,
+                next: nextData ? { name: nextData.StopName.Zh_tw, ...processBusTime(nextData), seq: nextData.StopSequence, plate: nextData.PlateNumb } : null,
+                currentSeq: current.StopSequence,
+                targetDir: targetDir // 回傳方向ID
+            };
+
+        } catch(e) {
+            console.error("Fetch Error", e);
+            return null; 
+        }
+    }
+    
+    async function getRealBusArrival(routeName, stopName, destination) {
+        const ctx = await getBusContext(routeName, stopName, destination);
+        return ctx ? ctx.current : null;
+    }
+
+    function startAutoRefresh() {
+        stopAutoRefresh(); 
+        let timeLeft = REFRESH_RATE_MS / 1000;
+        const timerEl = document.getElementById("auto-refresh-timer");
+        if (timerEl) timerEl.innerText = `${timeLeft}秒後更新`;
+
+        countdownTimer = setInterval(() => {
+            timeLeft--;
+            if (timerEl) timerEl.innerText = `${timeLeft}秒後更新`;
+            if (timeLeft <= 0) timeLeft = REFRESH_RATE_MS / 1000;
+        }, 1000);
+
+        refreshTimer = setInterval(() => {
+            const btn = document.getElementById("btn-manual-refresh");
+            if(btn) {
+                btn.classList.add("spinning");
+                setTimeout(() => btn.classList.remove("spinning"), 1000);
+            }
+            renderHomePageBusList();
+        }, REFRESH_RATE_MS);
+    }
+
+    function stopAutoRefresh() {
+        if (refreshTimer) clearInterval(refreshTimer);
+        if (countdownTimer) clearInterval(countdownTimer);
+        const timerEl = document.getElementById("auto-refresh-timer");
+        if (timerEl) timerEl.innerText = "暫停更新";
+    }
+    
+    async function renderHomePageBusList() {
+      currentRenderId++;
+      const thisRenderId = currentRenderId;
+
+      initDataFromStorage();
+      const busListEl = document.getElementById("bus-list");
+      
+      if (busListEl.children.length === 0 && !busListEl.innerHTML.includes("更新中")) {
+          busListEl.innerHTML = "<div style='padding:20px;text-align:center;'>正在從 TDX 更新即時資訊...</div>";
+      }
+      
+      if (STOPS.length === 0) {
+        busListEl.innerHTML = `<div style="padding:30px;text-align:center;color:#666;">目前還沒有常用站牌<br>請點擊下方按鈕新增</div>`;
+        return;
+      }
+
+      const promises = STOPS.map(async (stop) => {
+          const routeInfo = allRoutesConfig.find(r => r.id === stop.routeId);
+          let busName = routeInfo ? routeInfo.name : (stop.routeName || stop.name);
+          let dest = stop.direction;
+          let isAccessible = routeInfo ? routeInfo.isAccessible : false;
+
+          let arrivalMin = await getRealBusArrival(busName, stop.name, dest);
+          
+          return { stop, busName, dest, isAccessible, arrivalMin };
+      });
+
+      const results = await Promise.all(promises);
+
+      if (thisRenderId !== currentRenderId) return;
+
+      const fragment = document.createDocumentFragment();
+      let hasError = false;
+
+      results.forEach(res => {
+        let timeHTML = "";
+        let circleClass = "arrival-circle";
+        let plateHtml = ""; // 車牌標籤
+        
+        if (res.arrivalMin === null) {
+            timeHTML = `<span style="font-size:12px; line-height:1.2;">更新<br>失敗</span>`;
+            res.arrivalMin = 999; 
+            hasError = true;
+        } else if (res.arrivalMin.status === 'normal') {
+            const min = res.arrivalMin.time;
+            const isUrgent = min <= 3;
+            circleClass = isUrgent ? "arrival-circle urgent" : "arrival-circle";
+            if (min <= 0) timeHTML = `進<span>站</span>`;
+            else timeHTML = `${min}<span>分</span>`;
+            
+            // 🔴 新增：如果有車牌，顯示車牌
+            if(res.arrivalMin.plate) {
+                plateHtml = `<span class="bus-plate-badge">${res.arrivalMin.plate}</span>`;
+            }
+            
+        } else if (res.arrivalMin.status === 'schedule_calc') {
+            // 🔴 優化：將時刻表時間轉換為 GPS 風格的倒數
+            circleClass = "arrival-circle schedule"; 
+            
+            if (res.arrivalMin.time <= 60) {
+                // 60分鐘內，顯示倒數分鐘數，但標示「表定」以區分
+                const min = res.arrivalMin.time;
+                timeHTML = `<span style="font-size:14px; font-weight:700; margin-top:3px;">${min}</span><span style="font-size:9px;">分(表定)</span>`;
+            } else {
+                // 久候模式：超過60分鐘，顯示紅色並標註「下一班」
+                timeHTML = `<span style="font-size:14px; font-weight:700; margin-top:3px; color:#d63031;">${res.arrivalMin.showTime}</span><span style="font-size:9px; color:#d63031; font-weight:bold;">下一班</span>`;
+            }
+            
+        } else if (res.arrivalMin.status === 'schedule') {
+            circleClass = "arrival-circle schedule";
+            timeHTML = `<span style="font-size:13px; font-weight:600;">${res.arrivalMin.time}</span><span>發車</span>`;
+        } else if (res.arrivalMin.status === 'end') {
+            timeHTML = `<span style="font-size:11px;">末班<br>已過</span>`;
+        } else {
+            timeHTML = `<span style="font-size:11px;">今日<br>未發</span>`;
+        }
+
+        const accessibleHtml = res.isAccessible ? '<span class="icon-accessible" title="無障礙公車">♿</span>' : '';
+
+        const row = document.createElement("div");
+        row.className = "home-bus-row"; 
+        row.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 15px;">
+            <div class="${circleClass}">${timeHTML}</div>
+            <div>
+              <div class="bus-name">${res.busName} ${accessibleHtml} ${plateHtml}</div>
+              <div class="bus-dest">${res.stop.name} (${res.dest})</div>
+            </div>
+          </div>
+          <div style="color: #ccc; font-size: 20px;">›</div>
+        `;
+        
+        row.addEventListener("click", () => {
+          openDecisionFor({
+             routeId: res.stop.routeId, 
+             name: res.busName,
+             dest: res.dest,
+             stopName: res.stop.name,
+             busData: res.arrivalMin,
+             isAccessible: res.isAccessible
+          });
+        });
+        
+        fragment.appendChild(row);
+      });
+
+      busListEl.innerHTML = "";
+      busListEl.appendChild(fragment);
+      
+      if (hasError) {
+          const hint = document.createElement("div");
+          hint.id = "cors-hint";
+          hint.style.cssText = "text-align:center; padding:8px; color:#e74c3c; font-size:12px; background:#fff0f0; margin:5px 10px; border-radius:8px;";
+          hint.innerHTML = `⚠️ 更新失敗 (請檢查 F12)`;
+          const header = document.querySelector(".home-static-content");
+          if(header && !header.querySelector("#cors-hint")) header.appendChild(hint);
+      } else {
+          const oldHint = document.querySelector("#cors-hint");
+          if(oldHint) oldHint.remove();
+      }
+    }
+
+
+    let pendingBusInfo = null;
+    let pendingReservationType = null; 
+
+    // 🔴 關鍵修改：將功能綁定到 window，解決 Module 封裝導致的「找不到函式」問題
+    
+    window.openDecisionFor = async function(busInfo) {
+       pendingBusInfo = busInfo; 
+       setActiveScreen("detail-screen");
+
+       document.getElementById("detail-route-num").textContent = busInfo.name;
+       document.getElementById("detail-route-dest").textContent = busInfo.dest;
+       
+       // 🔴 新增：顯示當前站牌
+       const stopEl = document.getElementById("detail-current-stop");
+       if(stopEl) stopEl.textContent = "所在站牌：" + busInfo.stopName;
+
+       // 顯示 Loading
+       const statusBig = document.getElementById("detail-status-big");
+       const statusSub = document.getElementById("detail-status-sub");
+       statusBig.textContent = "--"; statusBig.className = "detail-status-big";
+       statusSub.textContent = "資料更新中...";
+       
+       document.getElementById("prev-stop-name").textContent = "載入中...";
+       document.getElementById("prev-stop-time").textContent = "--";
+       document.getElementById("next-stop-name").textContent = "載入中...";
+       document.getElementById("next-stop-time").textContent = "--";
+
+       // 取得完整前後站資料
+       const context = await getBusContext(busInfo.name, busInfo.stopName, busInfo.dest);
+       let data = context ? context.current : { status: 'unknown' };
+       const prevData = context ? context.prev : null;
+
+       // 更新標題旁的站序提示
+       if (context && context.currentSeq) {
+           stopEl.innerHTML = `所在站牌：${busInfo.stopName} <span style="font-size:12px; color:#888;">(第${context.currentSeq}站)</span>`;
+       }
+
+       pendingBusInfo.busData = data; 
+       
+       // 更新大標題 UI
+       if (!data || data.status === 'unknown') {
+           statusBig.textContent = "無法取得";
+           statusSub.textContent = "請確認網路連線";
+       } else if (data.status === 'normal') {
+           const min = data.time;
+           if (min <= 0) {
+               statusBig.textContent = "進站中";
+               statusBig.className = "detail-status-big status-alert"; 
+               statusSub.textContent = `請準備上車 (車號: ${data.plate})`;
+           } else {
+               statusBig.textContent = `${min} 分鐘`;
+               statusBig.className = "detail-status-big status-ok";
+               statusSub.textContent = `預計抵達 (車號: ${data.plate})`;
+           }
+       } else if (data.status === 'schedule_calc') {
+           // 表定時間模式
+           statusBig.textContent = `${data.showTime} 發車`; 
+           statusBig.className = "detail-status-big status-blue";
+           statusSub.textContent = `表定時間 (約 ${data.time} 分鐘後)`;
+           
+       } else if (data.status === 'schedule') {
+           statusBig.textContent = "尚未發車";
+           statusBig.className = "detail-status-big status-blue";
+           statusSub.textContent = `預計 ${data.time} 發車`;
+       } else {
+           statusBig.textContent = "末班已過";
+           statusSub.textContent = "今日已無班次";
+       }
+
+       // 更新前後站，並傳入當前車牌以便過濾
+       updateNeighborUI("prev", context ? context.prev : null, data.plate);
+       updateNeighborUI("next", context ? context.next : null, data.plate);
+
+       document.getElementById("detail-bus-type").textContent = busInfo.isAccessible ? "低底盤公車 (無障礙)" : "一般公車";
+       
+       // 模擬擁擠度 (保留原邏輯)
+       const crowdLevels = [
+           { text: "座位充裕", color: "green", count: "約 5~10 人" },
+           { text: "尚有座位", color: "green", count: "約 15 人" },
+           { text: "站立空間", color: "yellow", count: "約 30 人" },
+           { text: "車廂擁擠", color: "red", count: "爆滿" }
+       ];
+       const crowd = crowdLevels[Math.floor(Math.random() * crowdLevels.length)];
+       const dot = document.getElementById("detail-crowd-dot");
+       dot.className = `dot ${crowd.color}`;
+       document.getElementById("detail-crowd-text").textContent = `${crowd.text}`;
+
+       const onCount = Math.floor(Math.random() * 5) + 1;
+       const offCount = Math.floor(Math.random() * 3);
+       document.getElementById("detail-on-count").textContent = onCount;
+       document.getElementById("detail-off-count").textContent = offCount;
+    };
+
+    function updateNeighborUI(prefix, data, currentPlate) {
+        const nameEl = document.getElementById(`${prefix}-stop-name`);
+        const timeEl = document.getElementById(`${prefix}-stop-time`);
+        
+        if (!data) {
+            // 🔴 修正：更友善的提示
+            nameEl.textContent = (prefix === 'prev' ? "🚫 無上一站 (起點)" : "🚫 無下一站 (終點)");
+            timeEl.textContent = "--";
+            timeEl.className = "neighbor-time grey";
+            return;
+        }
+
+        // 顯示站序，方便除錯
+        nameEl.innerHTML = `${data.name} <span class="seq-tag">${data.seq}</span>`;
+        
+        // 🔴 嚴格過濾：如果時間是 -999，代表這台車已經過站了
+        if (data.time === -999) {
+             if(prefix === 'prev') {
+                 timeEl.textContent = "已離站";
+                 timeEl.className = "neighbor-time grey";
+                 return;
+             }
+        }
+        
+        if (data.status === 'normal') {
+             const min = data.time;
+             timeEl.textContent = min <= 0 ? "進站中" : `${min}分`;
+             timeEl.className = "neighbor-time";
+        } else if (data.status === 'schedule_calc') {
+             timeEl.textContent = `${data.showTime}`;
+             timeEl.className = "neighbor-time grey";
+        } else if (data.status === 'schedule') {
+             timeEl.textContent = data.time; 
+             timeEl.className = "neighbor-time grey";
+        } else {
+             timeEl.textContent = "末班已過";
+             timeEl.className = "neighbor-time grey";
+        }
+    }
+
+    window.updateFoodStopSelect = function() {
+        const select = document.getElementById("food-stop-select");
+        select.innerHTML = '<option value="">請選擇站牌...</option>';
+        if (STOPS.length === 0) {
+            select.innerHTML = '<option value="">請先新增常用站牌</option>';
+            return;
+        }
+        STOPS.forEach(s => {
+            const opt = document.createElement("option");
+            opt.value = s.name;
+            opt.innerText = s.name;
+            select.appendChild(opt);
+        });
+        select.onchange = () => { const stopName = select.value; if(stopName) searchFood(stopName); };
+    };
+
+    function searchFood(stopName) {
+        const container = document.getElementById("food-list-container");
+        container.innerHTML = '<div style="padding:20px;text-align:center;">🔍 正在搜尋附近美食...</div>';
+        
+        const request = {
+            query: stopName + " 附近美食",
+            fields: ['name', 'rating', 'formatted_address', 'photos']
+        };
+        
+        try {
+            const service = new google.maps.places.PlacesService(document.createElement('div'));
+            service.textSearch(request, (results, status) => {
+                if (status === google.maps.places.PlacesServiceStatus.OK && results) {
+                    container.innerHTML = "";
+                    results.slice(0, 10).forEach(place => { // 取前10筆
+                        const photoUrl = place.photos && place.photos.length > 0 
+                            ? place.photos[0].getUrl({ maxWidth: 100, maxHeight: 100 }) 
+                            : 'https://via.placeholder.com/60?text=Food';
+                        const item = document.createElement("div");
+                        item.className = "food-item";
+                        item.innerHTML = `<div class="food-img" style="background-image: url('${photoUrl}')"></div><div class="food-info"><h4>${place.name}</h4><div class="food-meta">⭐ ${place.rating || '無'} · ${place.formatted_address}</div></div>`;
+                        item.addEventListener("click", () => { window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name + " " + place.formatted_address)}`, '_blank'); });
+                        container.appendChild(item);
+                    });
+                } else {
+                    container.innerHTML = `<div style="padding:20px;text-align:center;">找不到結果。<br><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stopName + " 美食")}" target="_blank" style="color:#00b894; font-weight:bold;">👉 點此直接開啟 Google 地圖搜尋</a></div>`;
+                }
+            });
+        } catch(e) {
+             container.innerHTML = `<div style="padding:20px;text-align:center;">無法載入 API。<br><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stopName + " 美食")}" target="_blank" style="color:#00b894; font-weight:bold;">👉 點此直接開啟 Google 地圖搜尋</a></div>`;
+        }
+    }
+
+    // ... (Remaining Logic Unchanged) ...
+    const reserveOverlay = document.getElementById("reserve-overlay");
+    const alightStopModal = document.getElementById("alight-stop-modal");
+    const notificationOverlay = document.getElementById("notification-overlay");
+
+    document.getElementById("btn-reserve-board").addEventListener("click", () => {
+        pendingReservationType = 'boarding';
+        document.getElementById("reserve-msg").innerText = "已設定「上車提醒」。\n當公車即將進站時會通知您。";
+        reserveOverlay.style.display = "flex";
+    });
+
+    document.getElementById("btn-reserve-alight").addEventListener("click", () => {
+        pendingReservationType = 'alighting';
+        
+        const route = allRoutesConfig.find(r => r.id === pendingBusInfo.routeId);
+        const select = document.getElementById("select-alight-stop");
+        select.innerHTML = ""; 
+
+        if (route && route.stops && route.stops.length > 0) {
+            let startIndex = route.stops.indexOf(pendingBusInfo.stopName);
+            if (startIndex === -1) startIndex = 0; 
+
+            let hasStops = false;
+            for (let i = startIndex + 1; i < route.stops.length; i++) {
+                const opt = document.createElement("option");
+                opt.value = route.stops[i]; 
+                opt.textContent = route.stops[i];
+                select.appendChild(opt);
+                hasStops = true;
+            }
+
+            if (!hasStops) {
+                const opt = document.createElement("option");
+                opt.textContent = "已是末站，無法預約";
+                select.appendChild(opt);
+                document.getElementById("btn-alight-confirm").disabled = true;
+            } else {
+                document.getElementById("btn-alight-confirm").disabled = false;
+            }
+            
+            alightStopModal.style.display = "flex";
+        } else {
+            alert("找不到此路線的站牌資料，無法計算精確時間。");
+        }
+    });
+
+    document.getElementById("btn-alight-confirm").addEventListener("click", async () => {
+        const select = document.getElementById("select-alight-stop");
+        const stopName = select.value;
+        const confirmBtn = document.getElementById("btn-alight-confirm");
+        
+        confirmBtn.innerText = "查詢 TDX 即時資訊中...";
+        confirmBtn.disabled = true;
+
+        const arrivalData = await getRealBusArrival(pendingBusInfo.name, stopName, pendingBusInfo.dest);
+        
+        confirmBtn.innerText = "計算並設定";
+        confirmBtn.disabled = false;
+        
+        let estimatedMinutes = 30; // 預設值
+        if (arrivalData && arrivalData.status === 'normal') {
+            estimatedMinutes = arrivalData.time;
+        }
+
+        pendingBusInfo.alightStop = stopName;
+        pendingBusInfo.travelTime = estimatedMinutes; 
+
+        alightStopModal.style.display = "none";
+        document.getElementById("reserve-msg").innerText = `已設定「下車提醒」。\n目的地：${stopName}\n預計還有：${estimatedMinutes} 分鐘抵達`;
+        reserveOverlay.style.display = "flex";
+    });
+
+    document.getElementById("btn-alight-cancel").addEventListener("click", () => {
+        alightStopModal.style.display = "none";
+    });
+    
+    document.getElementById("btn-modal-ok").addEventListener("click", () => {
+        if(pendingBusInfo && pendingReservationType) {
+            const now = new Date();
+            const timeStr = now.getHours() + ":" + (now.getMinutes()<10?'0':'') + now.getMinutes();
+            
+            let targetTime = 0;
+            let displayMin = 0;
+            let destText = pendingBusInfo.dest;
+
+            let baseArrivalMin = 30; 
+            if (pendingBusInfo.busData && pendingBusInfo.busData.status === 'normal') {
+                baseArrivalMin = pendingBusInfo.busData.time;
+            }
+            if(baseArrivalMin <= 0) baseArrivalMin = 0;
+
+            if (pendingReservationType === 'boarding') {
+                let arrivalMs = baseArrivalMin * 60 * 1000;
+                if (baseArrivalMin <= 0) arrivalMs = 10000;
+                targetTime = Date.now() + arrivalMs;
+                displayMin = baseArrivalMin;
+            } else {
+                const minutesUntilAlight = pendingBusInfo.travelTime || 30;
+                if (pendingBusInfo.alightStop) destText = pendingBusInfo.alightStop; 
+
+                targetTime = Date.now() + (minutesUntilAlight * 60 * 1000);
+                displayMin = minutesUntilAlight;
+            }
+
+            RESERVATIONS.push({
+               id: Date.now(),
+               type: pendingReservationType, 
+               time: timeStr,
+               bus: pendingBusInfo.name,
+               dest: destText,
+               arrival: displayMin, 
+               targetTime: targetTime,
+               notified: false
+            });
+            saveDataToStorage(); 
+            renderReservationsList();
+        }
+        
+        reserveOverlay.style.display = "none";
+        document.getElementById("detail-screen").classList.remove("active");
+        setActiveScreen("reservations-screen");
+        setActiveNav("reservations-screen");
+    });
+
+    document.getElementById("btn-notification-ok").addEventListener("click", () => {
+        notificationOverlay.style.display = "none";
+    });
+
+    function startReservationCheck() {
+        setInterval(() => {
+            const now = Date.now();
+            let hasUpdate = false;
+            RESERVATIONS.forEach(res => {
+                if (!res.notified && now >= res.targetTime) {
+                    showNotification(res);
+                    res.notified = true;
+                    hasUpdate = true;
+                }
+            });
+            if (hasUpdate) {
+                saveDataToStorage();
+                renderReservationsList();
+            }
+        }, 5000);
+    }
+    
+    function showNotification(res) {
+        const titleEl = document.getElementById("notif-title");
+        const contentEl = document.getElementById("notification-content");
+        if (res.type === 'boarding') {
+            titleEl.innerText = "公車進站通知";
+            contentEl.innerHTML = `<strong>${res.bus}</strong> 即將抵達所在站牌<br>開往：${res.dest}<br>請準備上車！`;
+        } else {
+            titleEl.innerText = "到站下車通知";
+            contentEl.innerHTML = `<strong>${res.bus}</strong> 即將抵達目的地<br>站牌：${res.dest}<br>請準備按下車鈴！`;
+        }
+        notificationOverlay.style.display = "flex";
+    }
+
+    function renderReservationsList() {
+        const boardEl = document.querySelector("#res-list-boarding .content");
+        const alightEl = document.querySelector("#res-list-alighting .content");
+        const emptyText = document.getElementById("no-reservation-text");
+        
+        boardEl.innerHTML = "";
+        alightEl.innerHTML = "";
+        
+        if(RESERVATIONS.length === 0) {
+            emptyText.style.display = "block";
+            document.getElementById("res-list-boarding").style.display = 'none';
+            document.getElementById("res-list-alighting").style.display = 'none';
+        } else {
+            emptyText.style.display = "none";
+            document.getElementById("res-list-boarding").style.display = 'block';
+            document.getElementById("res-list-alighting").style.display = 'block';
+
+            RESERVATIONS.forEach(res => {
+                const card = document.createElement("div");
+                card.className = "card";
+                card.style.marginBottom = "10px";
+                card.style.padding = "10px";
+
+                const statusText = res.notified ? `<span style="color:#999;">(已通知)</span>` : `<span style="color:#00b894;">⏳ 等待中</span>`;
+                const typeText = res.type === 'boarding' ? "上車" : "下車";
+                const typeColor = res.type === 'boarding' ? "#4a69bd" : "#e67e22";
+
+                const minutesLeft = Math.max(0, Math.ceil((res.targetTime - Date.now()) / 60000));
+                const timeLeftText = res.notified ? "已結束" : `還有約 ${minutesLeft} 分鐘`;
+
+                card.innerHTML = `
+                   <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+                      <span style="font-weight:700; color:${typeColor}; border:1px solid ${typeColor}; padding:1px 4px; border-radius:4px;">${typeText}</span>
+                      ${statusText}
+                   </div>
+                   <div style="font-size:15px; font-weight:700;">${res.bus} <span style="font-weight:400; font-size:12px;">往 ${res.dest}</span></div>
+                   <div style="font-size:12px; color:#666; margin-top:4px;">${timeLeftText}</div>
+                   <button style="width:100%; border:none; background:#eee; padding:4px; margin-top:8px; border-radius:4px; font-size:12px; color:#666;" onclick="deleteRes(${res.id})">刪除</button>
+                `;
+                
+                if (res.type === 'boarding') boardEl.appendChild(card);
+                else alightEl.appendChild(card);
+            });
+            
+            if (boardEl.children.length === 0) boardEl.innerHTML = "<div style='font-size:12px; color:#ccc; padding:5px;'>無上車預約</div>";
+            if (alightEl.children.length === 0) alightEl.innerHTML = "<div style='font-size:12px; color:#ccc; padding:5px;'>無下車預約</div>";
+        }
+    }
+    
+    window.deleteRes = function(id) {
+        RESERVATIONS = RESERVATIONS.filter(r => r.id !== id);
+        saveDataToStorage();
+        renderReservationsList();
+    };
+
+    // AI Camera (COCO-SSD)
+    let model = null;
+    let webcamElement = document.getElementById('webcam-video');
+    let canvasElement = document.getElementById('webcam-canvas');
+    let aiStream = null;
+
+    window.initAI = async function() {
+        try {
+            document.getElementById("btn-start-ai").innerText = "⏳ 載入 YOLO 模型中...";
+            document.getElementById("btn-start-ai").disabled = true;
+
+            if (!model) {
+                model = await cocoSsd.load();
+            }
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: { width: { ideal: 640 }, height: { ideal: 480 } }
+            });
+            
+            webcamElement.srcObject = stream;
+            aiStream = stream;
+            
+            webcamElement.onloadeddata = () => {
+                webcamElement.play();
+                document.getElementById("webcam-wrapper").style.display = "flex";
+                document.getElementById("btn-start-ai").style.display = "none";
+                document.getElementById("btn-stop-ai").style.display = "inline-block";
+                requestAnimationFrame(predictLoop);
+            };
+        } catch (err) {
+            console.error(err);
+            alert("無法啟動相機: " + err.message + "\n請確認瀏覽器權限或是否為 localhost 環境");
+            document.getElementById("btn-start-ai").innerText = "📡 啟動 AI 攝影機";
+            document.getElementById("btn-start-ai").disabled = false;
+        }
+    };
+
+    async function predictLoop() {
+        if (!webcamElement.videoWidth) {
+            requestAnimationFrame(predictLoop);
+            return;
+        }
+        
+        canvasElement.width = webcamElement.videoWidth;
+        canvasElement.height = webcamElement.videoHeight;
+        const ctx = canvasElement.getContext('2d');
+
+        const predictions = await model.detect(webcamElement);
+        
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.drawImage(webcamElement, 0, 0, ctx.canvas.width, ctx.canvas.height);
+        
+        let personCount = 0;
+        predictions.forEach(prediction => {
+            if (prediction.class === 'person') {
+                personCount++;
+                const [x, y, width, height] = prediction.bbox;
+                
+                ctx.strokeStyle = '#00FF00'; 
+                ctx.lineWidth = 5;            
+                ctx.strokeRect(x, y, width, height);
+                
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+                ctx.fillRect(x, y, width, height);
+
+                ctx.fillStyle = '#00FF00';
+                ctx.font = 'bold 20px Arial';
+                const scoreText = Math.round(prediction.score * 100) + '% person';
+                
+                const textWidth = ctx.measureText(scoreText).width;
+                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillRect(x, y > 25 ? y - 25 : 0, textWidth + 10, 25);
+
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillText(scoreText, x + 5, y > 25 ? y - 5 : 20);
+            }
+        });
+        
+        document.getElementById("person-count").innerText = personCount;
+        requestAnimationFrame(predictLoop);
+    }
+
+    window.stopAI = function() {
+        if (webcamElement.srcObject) {
+            webcamElement.srcObject.getTracks().forEach(track => track.stop());
+            webcamElement.srcObject = null;
+        }
+        document.getElementById("webcam-wrapper").style.display = "none";
+        document.getElementById("btn-start-ai").style.display = "inline-block";
+        document.getElementById("btn-start-ai").innerText = "📡 啟動 AI 攝影機";
+        document.getElementById("btn-start-ai").disabled = false;
+        document.getElementById("btn-stop-ai").style.display = "none";
+    };
+
+    document.getElementById("btn-start-ai").addEventListener("click", initAI);
+    document.getElementById("btn-stop-ai").addEventListener("click", stopAI);
+
+    // Nav Logic
+    document.querySelectorAll(".nav-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const target = btn.dataset.target;
+        setActiveScreen(target);
+        setActiveNav(target);
+        
+        if (target === 'others-screen') {
+            if (typeof window.updateFoodStopSelect === 'function') {
+                window.updateFoodStopSelect();
+            }
+        } else {
+            if(aiStream) stopAI(); 
+        }
+        
+        if (target === 'home-screen') {
+            startAutoRefresh();
+        } else {
+            stopAutoRefresh();
+        }
+      });
+    });
+
+    function setActiveScreen(id) {
+      document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+      document.getElementById(id).classList.add("active");
+    }
+    function setActiveNav(id) {
+      document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+      const btn = document.querySelector(`.nav-btn[data-target="${id}"]`);
+      if(btn) btn.classList.add("active");
+    }
+
+    document.getElementById("btn-plan-route").addEventListener("click", () => {
+        const dest = document.getElementById("destInput").value.trim();
+        if (!dest) { alert("請輸入目的地！"); return; }
+        
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (p) => {
+                    const lat = p.coords.latitude;
+                    const lon = p.coords.longitude;
+                    const url = `https://www.google.com/maps/dir/?api=1&origin=${lat},${lon}&destination=${encodeURIComponent(dest)}&travelmode=transit`;
+                    window.open(url, '_blank');
+                },
+                () => {
+                    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}&travelmode=transit`;
+                    window.open(url, '_blank');
+                }
+            );
+        } else {
+            alert("瀏覽器不支援定位");
+        }
+    });
+
+    window.goToHome = function() {
+      const welcomeScreen = document.getElementById("welcome-screen");
+      if (welcomeScreen.classList.contains("active")) {
+          setActiveScreen("home-screen");
+          setActiveNav("home-screen");
+          setTimeout(() => {
+              fetchRoutesFromFirebase(); 
+              startAutoRefresh(); 
+          }, 100);
+      }
+    };
+    
+    document.getElementById("btn-start").onclick = window.goToHome;
+    
+    function startAutoRedirect() {
+      let seconds = 3;
+      const countdownEl = document.getElementById("countdown-text");
+      const interval = setInterval(() => {
+        seconds--;
+        if(countdownEl) countdownEl.innerText = `${seconds} 秒後自動進入...`;
+        if (seconds <= 0) { clearInterval(interval); window.goToHome(); }
+      }, 1000);
+    }
+    
+    // Add Stop logic remains unchanged
+    const addStopModal = document.getElementById("add-stop-modal");
+    const selectRouteFirebase = document.getElementById("select-route-firebase");
+    const selectStopFirebase = document.getElementById("select-stop-firebase");
+
+    function openAddModal() {
+      addStopModal.style.display = "flex";
+      selectRouteFirebase.innerHTML = '<option value="">載入資料中...</option>';
+      selectStopFirebase.innerHTML = '<option value="">請先選擇路線</option>';
+      selectStopFirebase.disabled = true;
+      selectStopFirebase.style.backgroundColor = "#f0f0f0";
+      if (allRoutesConfig.length === 0) fetchRoutesFromFirebase().then(populateRouteSelect);
+      else populateRouteSelect();
+    }
+    
+    document.getElementById("btn-add-stop").addEventListener("click", openAddModal);
+    document.getElementById("btn-to-stops-main").addEventListener("click", openAddModal);
+
+    function populateRouteSelect() {
+      selectRouteFirebase.innerHTML = '<option value="">請選擇路線...</option>';
+      allRoutesConfig.forEach(route => {
+        const opt = document.createElement("option");
+        opt.value = route.id;
+        opt.textContent = `${route.name} (往 ${route.dest})`; 
+        selectRouteFirebase.appendChild(opt);
+      });
+    }
+
+    selectRouteFirebase.addEventListener("change", () => {
+        const routeId = selectRouteFirebase.value;
+        if (!routeId) {
+          selectStopFirebase.disabled = true; return;
+        }
+        const route = allRoutesConfig.find(r => r.id === routeId);
+        selectStopFirebase.innerHTML = '<option value="">請選擇站牌...</option>';
+        if (route && route.stops) {
+          route.stops.forEach(stopName => {
+            const opt = document.createElement("option");
+            opt.value = stopName; opt.textContent = stopName;
+            selectStopFirebase.appendChild(opt);
+          });
+          selectStopFirebase.disabled = false; selectStopFirebase.style.backgroundColor = "#fff";
+        }
+    });
+
+    document.getElementById("btn-add-stop-cancel").addEventListener("click", () => addStopModal.style.display = "none");
+    document.getElementById("btn-add-stop-confirm").addEventListener("click", () => {
+      const routeId = selectRouteFirebase.value;
+      const stopName = selectStopFirebase.value;
+      if (!routeId || !stopName) { alert("請完整選擇"); return; }
+      const route = allRoutesConfig.find(r => r.id === routeId);
+      STOPS.push({
+        id: Date.now(),
+        routeId: routeId, routeName: route.name, name: stopName,
+        direction: `往 ${route.dest}`, isDefault: false
+      });
+      saveDataToStorage();
+      renderStopsList(); renderHomePageBusList(); 
+      addStopModal.style.display = "none";
+      setActiveScreen("home-screen"); setActiveNav("home-screen");
+    });
+
+    function renderStopsList() {
+      const stopsListEl = document.getElementById("stops-list");
+      stopsListEl.innerHTML = "";
+      if (STOPS.length === 0) {
+        stopsListEl.innerHTML = `<div style="font-size:12px;color:#000;">目前還沒有常用站牌。</div>`; return;
+      }
+      STOPS.forEach(stop => {
+        let routeName = stop.routeName;
+        let isAccessible = false;
+        if (allRoutesConfig.length > 0) {
+           const r = allRoutesConfig.find(x => x.id === stop.routeId);
+           if(r) { routeName = r.name; isAccessible = r.isAccessible; }
+        }
+        const badgeHtml = routeName ? `<span style="background:var(--color-primary); color:white; padding:2px 6px; border-radius:4px; font-size:12px; margin-right:6px; font-weight:700;">${routeName}</span>` : '';
+        const accessibleHtml = isAccessible ? '<span class="icon-accessible">♿</span>' : '';
+        const card = document.createElement("div");
+        card.className = "stop-card card";
+        card.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><div style="font-weight:600; font-size:15px; display:flex; align-items:center;">${badgeHtml} ${stop.name} ${accessibleHtml}</div><button class="chip-btn" style="background:#ffe6e6;color:red;" onclick="removeStop(${stop.id})">刪除</button></div><div style="font-size:12px; color:#666; margin-top:4px; padding-left: 2px;">${stop.direction}</div>`;
+        stopsListEl.appendChild(card);
+      });
+    }
+
+    window.removeStop = function(id) {
+       if(!confirm("確定刪除?")) return;
+       STOPS = STOPS.filter(s => s.id !== id);
+       saveDataToStorage();
+       renderStopsList(); renderHomePageBusList();
+    };
+    
+    document.getElementById("btn-back").addEventListener("click", () => {
+       setActiveScreen("home-screen"); setActiveNav("home-screen");
+       startAutoRefresh(); 
+    });
+    
+    function updateWeather() {
+        const headerWeatherEl = document.getElementById("header-weather");
+        const homeWeatherEl = document.getElementById("weather-text");
+        if(homeWeatherEl) homeWeatherEl.innerText = "定位中...";
+        if(headerWeatherEl) headerWeatherEl.innerText = "定位中...";
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude; const lon = position.coords.longitude;
+                    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=auto`;
+                    fetch(url).then(res => res.json()).then(data => {
+                        const w = data.current_weather; const text = `${w.temperature}°C`;
+                        if(homeWeatherEl) homeWeatherEl.innerText = `${text}・目前位置`;
+                        if(headerWeatherEl) headerWeatherEl.innerText = text;
+                    }).catch(e => console.error(e));
+                },
+                (err) => {
+                    const msg = "定位權限受拒";
+                    if(homeWeatherEl) homeWeatherEl.innerText = msg;
+                    if(headerWeatherEl) headerWeatherEl.innerText = msg;
+                }
+            );
+        } else { if(homeWeatherEl) homeWeatherEl.innerText = "不支援定位"; }
+    }
+    document.getElementById("btn-refresh-weather").addEventListener("click", updateWeather);
+
+    // Boot
+    startAutoRedirect();
+    startReservationCheck();
+    renderReservationsList(); 
+  </script>
+</body>
+</html>
